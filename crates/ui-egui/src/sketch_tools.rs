@@ -76,6 +76,9 @@ thread_local! {
     /// The inference the cursor snapped to last (label, sketch point), for the hint.
     static SNAP: RefCell<Option<(&'static str, Vec2)>> = const { RefCell::new(None) };
     static PREV: Cell<Option<Vec2>> = const { Cell::new(None) };
+    /// Dashed alignment guides of the last snap: (sketch point aligned with, where the cursor
+    /// landed), in sketch coordinates.
+    static ALIGN: RefCell<Vec<(Vec2, Vec2)>> = const { RefCell::new(Vec::new()) };
     /// Curvature comb teeth (foot, tip) shown while the comb tool is active.
     static COMBS: RefCell<Vec<Vec<[Vec3; 2]>>> = const { RefCell::new(Vec::new()) };
     /// The image file a Canvas or Decal tool places.
@@ -373,6 +376,7 @@ pub fn refine_snap(
     lp: Vec2,
 ) -> Option<(Vec2, Option<String>)> {
     crate::inference::clear();
+    ALIGN.with(|a| a.borrow_mut().clear());
     // Millimetres per pixel here.
     let (a, b) = (proj.to_screen(plane.to_world(lp))?, proj.to_screen(plane.to_world(lp + Vec2::X))?);
     let px = 1.0 / (a.distance(b) as f64).max(1e-9);
@@ -459,12 +463,20 @@ pub fn refine_snap(
     {
         let (dx, dy) = ((lp.x - prev.x).abs(), (lp.y - prev.y).abs());
         // The free coordinate still follows the grid.
-        let step = solidcraft_engine::view::grid_step(app.cam.half_height()).0 / 10.0;
+        let step = solidcraft_engine::view::grid_step(app.cam.half_height()).0;
         let g = |v: f64| (v / step).round() * step;
         if dy < tol && dx > tol {
             best = Some((dy, "H", Vec2::new(g(lp.x), prev.y)));
         } else if dx < tol && dy > tol {
             best = Some((dx, "V", Vec2::new(prev.x, g(lp.y))));
+        }
+    }
+    // Alignment with any other point of the sketch (and its origin): a dashed guide runs from that
+    // point to the cursor, as when a point is placed level with, or straight above, an existing one.
+    if !mid_only && best.is_none() {
+        let step = solidcraft_engine::view::grid_step(app.cam.half_height()).0;
+        if let Some((d, label, at)) = align_to_points(sk, lp, tol, step) {
+            best = Some((d, label, at));
         }
     }
     // Line tool: parallel or perpendicular to a line, or on a line's extension.
@@ -490,6 +502,59 @@ pub fn refine_snap(
         };
         (p, arg)
     })
+}
+
+/// Hints of the last snap are forgotten (the cursor snaps to nothing, or snapping is off).
+pub fn clear_hints() {
+    crate::inference::clear();
+    SNAP.with(|s| *s.borrow_mut() = None);
+    ALIGN.with(|a| a.borrow_mut().clear());
+}
+
+/// The cursor locked onto an existing sketch point: show the marker at it.
+pub fn note_point_snap(at: Vec2) {
+    crate::inference::clear();
+    ALIGN.with(|a| a.borrow_mut().clear());
+    SNAP.with(|s| *s.borrow_mut() = Some(("End", at)));
+}
+
+/// Alignment of the cursor `lp` with the points of the sketch: level with one (same Y) and/or
+/// straight above or below one (same X), within `tol` millimetres. The free coordinate still
+/// follows the grid (`step`). Returns the distance moved, a label and the snapped point, and
+/// records the dashed guides for [`snap_hint`].
+pub(crate) fn align_to_points(sk: &solidcraft_engine::sketch::Sketch, lp: Vec2, tol: f64, step: f64) -> Option<(f64, &'static str, Vec2)> {
+    let visible = solidcraft_engine::view::SketchPointVisibility::new(sk);
+    let mut level: Option<(f64, Vec2)> = None;
+    let mut above: Option<(f64, Vec2)> = None;
+    for p in sk.points.iter().filter(|p| visible.takes(p)) {
+        if !p.pos.x.is_finite() || !p.pos.y.is_finite() {
+            continue;
+        }
+        let (dx, dy) = ((lp.x - p.pos.x).abs(), (lp.y - p.pos.y).abs());
+        if dy < tol && level.is_none_or(|b| dy < b.0) {
+            level = Some((dy, p.pos));
+        }
+        if dx < tol && above.is_none_or(|b| dx < b.0) {
+            above = Some((dx, p.pos));
+        }
+    }
+    let g = |v: f64| if step > 1e-12 { (v / step).round() * step } else { v };
+    let (label, at, d, guides) = match (level, above) {
+        (Some((dy, h)), Some((dx, v))) => ("H+V", Vec2::new(v.x, h.y), dx.max(dy), vec![(h, Vec2::new(v.x, h.y)), (v, Vec2::new(v.x, h.y))]),
+        (Some((dy, h)), None) => {
+            let at = Vec2::new(g(lp.x), h.y);
+            ("H", at, dy, vec![(h, at)])
+        }
+        (None, Some((dx, v))) => {
+            let at = Vec2::new(v.x, g(lp.y));
+            ("V", at, dx, vec![(v, at)])
+        }
+        (None, None) => return None,
+    };
+    // A guide that has no length (the cursor is on the point itself) has nothing to show.
+    let guides: Vec<(Vec2, Vec2)> = guides.into_iter().filter(|(a, b)| a.dist(*b) > 1e-9).collect();
+    ALIGN.with(|a| *a.borrow_mut() = guides);
+    Some((d, label, at))
 }
 
 /// The constraints one glyph stands for. A point that is the midpoint of several lines (their
@@ -1486,7 +1551,8 @@ fn glyph_anchors(sk: &solidcraft_engine::sketch::Sketch, k: &solidcraft_engine::
     }
 }
 
-/// The inference label next to the snapped cursor (while a tool is active).
+/// The inference label next to the snapped cursor (while a tool is active), a ring at the point it
+/// locked onto and the dashed guides of an alignment.
 fn snap_hint(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
     if app.tool.is_none() {
         return;
@@ -1496,6 +1562,12 @@ fn snap_hint(app: &SolveApp, painter: &egui::Painter, proj: &Proj) {
     let Some(ss) = active_sketch(app).and_then(|s| st.sketch(s)) else { return };
     let Some(sp) = proj.to_screen(ss.plane.to_world(p)) else { return };
     let tk = crate::theme::Tokens::get();
+    for (from, to) in ALIGN.with(|a| a.borrow().clone()) {
+        if let (Some(a), Some(b)) = (proj.to_screen(ss.plane.to_world(from)), proj.to_screen(ss.plane.to_world(to))) {
+            painter.extend(egui::Shape::dashed_line(&[a, b], Stroke::new(1.0, tk.accent), 5.0, 3.0));
+        }
+    }
+    painter.circle_stroke(sp, 5.0, Stroke::new(1.5, tk.accent));
     let r = egui::Rect::from_min_size(sp + egui::vec2(12.0, -24.0), egui::vec2(24.0, 14.0));
     painter.rect_filled(r, tk.radius_sm.saturating_sub(1), tk.accent_soft);
     painter.text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(crate::theme::Tokens::get().font_micro), tk.text);

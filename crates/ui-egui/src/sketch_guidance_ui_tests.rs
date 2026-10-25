@@ -263,3 +263,27 @@ fn sketch_modify_keeps_custom_point_ids_that_contain_colons() {
     }
     assert_eq!(h.app.session.world_state().sketch(1).unwrap().sketch.curves.len(), 8);
 }
+
+#[test]
+fn a_point_aligns_with_other_sketch_points_and_the_free_coordinate_follows_the_grid() {
+    use solidcraft_engine::geom::Vec2;
+    use solidcraft_engine::sketch::Sketch;
+    let mut sk = Sketch::new();
+    sk.add_point(Vec2::new(10.0, 20.0), None).unwrap();
+    sk.add_point(Vec2::new(-30.0, 5.0), None).unwrap();
+    // Level with (10, 20): the Y of that point, the X on the grid step.
+    let (d, label, at) = crate::sketch_tools::align_to_points(&sk, Vec2::new(33.2, 20.4), 1.0, 0.5).unwrap();
+    assert_eq!((label, at), ("H", Vec2::new(33.0, 20.0)));
+    assert!((d - 0.4).abs() < 1e-9);
+    // Straight above (-30, 5).
+    let (_, label, at) = crate::sketch_tools::align_to_points(&sk, Vec2::new(-29.6, 47.2), 1.0, 0.5).unwrap();
+    assert_eq!((label, at), ("V", Vec2::new(-30.0, 47.0)));
+    // Level with one and above the other: the corner they span.
+    let (_, label, at) = crate::sketch_tools::align_to_points(&sk, Vec2::new(-29.7, 20.3), 1.0, 0.5).unwrap();
+    assert_eq!((label, at), ("H+V", Vec2::new(-30.0, 20.0)));
+    // The sketch origin counts too.
+    let (_, label, at) = crate::sketch_tools::align_to_points(&sk, Vec2::new(0.4, 60.2), 1.0, 0.5).unwrap();
+    assert_eq!((label, at), ("V", Vec2::new(0.0, 60.0)));
+    // Out of reach of every point.
+    assert!(crate::sketch_tools::align_to_points(&sk, Vec2::new(50.0, 60.0), 1.0, 0.5).is_none());
+}

@@ -2994,10 +2994,12 @@ pub fn sketch_point_at(app: &SolveApp, proj: &Proj, pos: Pos2) -> Option<(Vec2, 
     let sid = app.session.active_sketch?;
     let st = crate::open_meshing::shown_world(app);
     let ss = st.sketch(sid)?;
+    crate::sketch_tools::clear_hints();
     for h in pick(app, proj, pos) {
         if let Hit::SketchPoint { sketch, id, at } = h
             && sketch == sid
         {
+            crate::sketch_tools::note_point_snap(at);
             return Some((at, Some(id)));
         }
     }
@@ -3007,8 +3009,9 @@ pub fn sketch_point_at(app: &SolveApp, proj: &Proj, pos: Pos2) -> Option<(Vec2, 
     if crate::drag_snap::suppressed() {
         return Some((lp, None));
     }
+    // The point sits on the nearest crossing of the grid lines drawn in the sketch, not on a finer
+    // grid that is not shown.
     let (minor, _) = grid_step(app.cam.half_height());
-    let step = minor / 10.0;
     if let Some(p) = crate::sketch_tools::refine_snap(app, proj, &ss.sketch, &ss.plane, lp) {
         return Some(p);
     }
@@ -3016,7 +3019,12 @@ pub fn sketch_point_at(app: &SolveApp, proj: &Proj, pos: Pos2) -> Option<(Vec2, 
     if ss.sketch.view.no_snap {
         return Some((lp, None));
     }
-    Some((Vec2::new((lp.x / step).round() * step, (lp.y / step).round() * step), None))
+    Some((Vec2::new(grid_snap(lp.x, minor), grid_snap(lp.y, minor)), None))
+}
+
+/// One coordinate on the nearest drawn (minor) grid line.
+fn grid_snap(v: f64, minor: f64) -> f64 {
+    if minor > 1e-12 { (v / minor).round() * minor } else { v }
 }
 
 pub fn delete_selection(app: &mut SolveApp) {
@@ -4896,6 +4904,17 @@ fn view_menu(app: &mut SolveApp, ui: &mut egui::Ui, button: Rect) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_sketch_point_sits_on_a_drawn_grid_crossing_not_on_a_finer_hidden_one() {
+        // Minor lines every 10 mm: 9.95 and 10.2 both land on the line at 10.
+        assert_eq!(super::grid_snap(9.95, 10.0), 10.0);
+        assert_eq!(super::grid_snap(10.2, 10.0), 10.0);
+        assert_eq!(super::grid_snap(-4.9, 10.0), 0.0);
+        assert_eq!(super::grid_snap(-5.1, 10.0), -10.0);
+        // A degenerate spacing leaves the value alone.
+        assert_eq!(super::grid_snap(21.3, 0.0), 21.3);
+    }
+
     use super::*;
     use crate::navigation::*;
 
