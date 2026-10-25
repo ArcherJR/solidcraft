@@ -33,24 +33,24 @@ fn clicked_periodic_fit_closes_at_start_and_right_click_keeps_natural() {
     h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
     h.settle();
     h.step(&json!({"start":"sketch.spline.fit_point"})).unwrap();
-    for point in [[2, 2, 0], [8, 2, 0], [9, 7, 0], [1, 6, 0]] {
+    for point in [[10, 10, 0], [30, 10, 0], [40, 30, 0], [10, 40, 0]] {
         h.step(&json!({"click":{"world":point}})).unwrap();
     }
     let sid = h.app.session.active_sketch.unwrap();
     assert!(h.app.session.model.state().sketch(sid).unwrap().sketch.curves.is_empty());
-    h.step(&json!({"move":{"world":[2,2,0]}})).unwrap();
+    h.step(&json!({"move":{"world":[10,10,0]}})).unwrap();
     assert_eq!(h.app.tool.as_ref().unwrap().hover.as_ref().unwrap().1.as_deref(), Some("Close smooth loop"));
-    h.step(&json!({"click":{"world":[2,2,0]}})).unwrap();
+    h.step(&json!({"click":{"world":[10,10,0]}})).unwrap();
     let sk = h.app.session.model.state().sketch(sid).unwrap().sketch.clone();
     assert_eq!(sk.curves.len(), 1, "{:?}", h.app.status);
     assert!(matches!(sk.curves[0].kind, CurveKind::Spline { periodic: true, .. }));
     sk.validate_periodic_splines().unwrap();
     assert_eq!(solidcraft_engine::sketch::find_profiles(&sk).len(), 1);
     assert!(h.app.tool.as_ref().unwrap().pts.is_empty());
-    for point in [[15, 2, 0], [20, 2, 0], [20, 6, 0]] {
+    for point in [[50, 10, 0], [60, 10, 0], [60, 30, 0]] {
         h.step(&json!({"click":{"world":point}})).unwrap();
     }
-    h.step(&json!({"click":{"world":[20,6,0]},"button":"right"})).unwrap();
+    h.step(&json!({"click":{"world":[60,30,0]},"button":"right"})).unwrap();
     let sk = h.app.session.model.state().sketch(sid).unwrap().sketch.clone();
     assert_eq!(sk.curves.len(), 2);
     assert!(matches!(sk.curves[1].kind, CurveKind::Spline { periodic: false, .. }));

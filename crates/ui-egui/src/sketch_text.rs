@@ -1197,12 +1197,12 @@ mod tests {
     #[test]
     fn the_text_tool_places_a_text_and_types_it_in_edit_text_live() {
         let (mut h, undo) = text_tool();
-        h.step(&json!({"click":{"sketch":[5,5]}})).unwrap();
+        h.step(&json!({"click":{"sketch":[6,6]}})).unwrap();
         h.frames(2);
         // A placeholder is down at once, Edit Text is open on it with the text selected, and the tool has ended.
         assert!(editing(&h.app));
         assert!(h.app.tool.is_none());
-        let at = solidcraft_engine::geom::Vec2::new(5.0, 5.0);
+        let at = solidcraft_engine::geom::Vec2::new(6.0, 6.0);
         assert!(matches!(texts(&h).as_slice(), [LinkSource::Text { text, at: a, .. }] if text == PLACEHOLDER && a.dist(at) < 1e-9));
         // Typing replaces it, and the canvas follows every key.
         h.step(&json!({"text":"Hi"})).unwrap();

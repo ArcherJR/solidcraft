@@ -179,11 +179,11 @@ fn inch_live_lengths_use_design_units_and_typed_four_digits_commit_in_inches() {
     h.app.run("sketch.create", json!({"plane":"XY"})).unwrap();
     h.step(&json!({"start":"sketch.rectangle.two_point"})).unwrap();
     h.step(&json!({"click":{"world":[0,0,0]}})).unwrap();
-    h.step(&json!({"move":{"world":[25.4,12.7,0]}})).unwrap();
+    h.step(&json!({"move":{"world":[30,10,0]}})).unwrap();
     let dims = &h.app.tool.as_ref().unwrap().dims;
-    // Pointer snapping rounds in model space; displayed values must still be inches.
-    assert!((dims[0].value.parse::<f64>().unwrap() - 1.0).abs() < 0.01);
-    assert!((dims[1].value.parse::<f64>().unwrap() - 0.5).abs() < 0.01);
+    // Pointer snapping rounds in model space (to the drawn grid); displayed values must still be inches.
+    assert!((dims[0].value.parse::<f64>().unwrap() - 30.0 / 25.4).abs() < 0.01);
+    assert!((dims[1].value.parse::<f64>().unwrap() - 10.0 / 25.4).abs() < 0.01);
     type_value(&mut h, "1.2345");
     tab(&mut h, false);
     type_value(&mut h, "0.500");

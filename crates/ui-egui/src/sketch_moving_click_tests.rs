@@ -67,8 +67,8 @@ fn a_short_drag_starts_a_rectangle_circle_or_polygon_by_clicks() {
     for (command, second, count) in [
         ("sketch.rectangle.two_point", [20.0, 10.0], 4),
         ("sketch.rectangle.center", [20.0, 10.0], 6),
-        ("sketch.circle.center", [15.0, 0.0], 1),
-        ("sketch.polygon.inscribed", [15.0, 0.0], 7),
+        ("sketch.circle.center", [16.0, 0.0], 1),
+        ("sketch.polygon.inscribed", [16.0, 0.0], 7),
     ] {
         let mut h = harness(command);
         // A press that moves 12 points (past egui's click distance, short of a drawn shape) is
